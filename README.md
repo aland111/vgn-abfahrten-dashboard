@@ -3,7 +3,7 @@
 This project is a single HTML file that shows upcoming departures for VGN stops, with a simple tap-to-filter UI and a walking-time countdown.
 
 ## File
-- `abfahrten.html`
+- `index.html`
 
 ## How To Use
 Open the file in a browser. You can optionally pass stops and a refresh interval via query parameters.
@@ -16,7 +16,7 @@ Format:
 
 Example:
 ```
-abfahrten.html?stops=503:Maffeiplatz:15,545:Wodanstraße:6
+index.html?stops=503:Maffeiplatz:15,545:Wodanstraße:6
 ```
 
 - `<id>` is the VGN stop ID

@@ -1,0 +1,439 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Abfahrten</title>
+
+  <style>
+    /* ---------- Theme variables ---------- */
+    :root{
+      --bg: #f4f4f4;
+      --text: #111;
+      --muted: #666;
+      --table-bg: #ffffff;
+      --th-bg: #f0f0f0;
+      --border: #ddd;
+      --shadow: 0 2px 5px rgba(0,0,0,.1);
+      --error: #c62828;
+      --delay: #d32f2f;
+      --row-hover: rgba(0,0,0,0.03);
+      --control-bg: #fff;
+      --control-border: #ccc;
+    }
+
+    /* Dark mode (normal dark surfaces) */
+    :root[data-theme="dark"]{
+      --bg: #0f1115;
+      --text: #e9edf2;
+      --muted: #a7b0bb;
+      --table-bg: #151922;
+      --th-bg: #1d2330;
+      --border: #2a3242;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --error: #ff6b6b;
+      --delay: #ff6b6b;
+      --row-hover: rgba(255,255,255,0.04);
+      --control-bg: #151922;
+      --control-border: #2a3242;
+    }
+
+    /* Black mode (true OLED black) */
+    :root[data-theme="black"]{
+      --bg: #000000;
+      --text: #eaeaea;
+      --muted: #9aa0a6;
+      --table-bg: #000000;
+      --th-bg: #000000;
+      --border: #1f1f1f;
+      --shadow: none;
+      --error: #ff6b6b;
+      --delay: #ff6b6b;
+      --row-hover: #0f0f0f;
+      --control-bg: #000;
+      --control-border: #1f1f1f;
+    }
+
+    /* ---------- Base layout ---------- */
+    body {
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+      margin: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--table-bg);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      margin-bottom: 40px;
+    }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background-color: var(--th-bg); }
+    tbody tr:hover { background: var(--row-hover); }
+
+    .error { color: var(--error); }
+    .info { color: var(--muted); }
+    .delay { color: var(--delay); font-weight: 700; }
+    .dir-arrow { margin-left: 6px; color: var(--muted); font-weight: 700; }
+
+    .linien-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 12px;
+      color: white;
+      font-weight: bold;
+      min-width: 44px;
+      line-height: 1;
+    }
+
+    /* Product colors stay unchanged */
+    .bus { background-color: red; border-radius: 999px; }
+    .tram { background-color: #961982; border-radius: 8px; }
+    .ubahn { background-color: #005c9f; border-radius: 8px; }
+    .sbahn { background-color: green; border-radius: 999px; }
+
+    /* Minimal theme toggle button */
+    .theme-toggle{
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      background: var(--control-bg);
+      color: var(--text);
+      border: 1px solid var(--control-border);
+      border-radius: 999px;
+      width: 40px;
+      height: 40px;
+      font-size: 18px;
+      cursor: pointer;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .theme-toggle:hover{ opacity: 0.85; }
+
+    /* Row interaction */
+    .row-active { background: rgba(0,0,0,0.06); }
+    :root[data-theme="dark"] .row-active { background: rgba(255,255,255,0.08); }
+    :root[data-theme="black"] .row-active { background: #141414; }
+    .filter-note {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 12px 0;
+    }
+  </style>
+</head>
+
+<body>
+  <button id="themeToggle" class="theme-toggle" aria-label="Theme wechseln" title="Theme wechseln">☀️</button>
+  <div id="filterNote" class="filter-note"></div>
+  <div id="abfahrten"></div>
+
+  <script>
+    const API_BASE = 'https://start.vag.de/dm/api/v1/abfahrten/VGN/';
+    const locale = 'de-DE';
+
+    const DEFAULT_STOPS = [
+      { id: 561, name: 'Frankenstraße', walk: 3 }
+    ];
+    const DEFAULT_REFRESH = 30;
+
+    // ---- Theme toggle: Light -> Dark -> Black -> Light ----
+    const THEME_KEY = "abfahrten_theme";
+    const THEMES = ["light", "dark", "black"];
+    const THEME_ICON = { light: "☀️", dark: "🌙", black: "⚫" };
+
+    function setThemeColorMeta(theme) {
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.name = "theme-color";
+        document.head.appendChild(meta);
+      }
+      meta.content = (theme === "black")
+        ? "#000000"
+        : (theme === "dark" ? "#0f1115" : "#f4f4f4");
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+      setThemeColorMeta(theme);
+      var btn = document.getElementById("themeToggle");
+      if (btn) btn.textContent = THEME_ICON[theme] || "☀️";
+    }
+
+    function initThemeToggle() {
+      var btn = document.getElementById("themeToggle");
+      var saved = "light";
+      try { saved = localStorage.getItem(THEME_KEY) || "light"; } catch (e) {}
+      applyTheme(saved);
+
+      btn.addEventListener("click", function () {
+        var current = document.documentElement.getAttribute("data-theme") || "light";
+        var idx = THEMES.indexOf(current);
+        var next = THEMES[(idx + 1) % THEMES.length];
+        applyTheme(next);
+      });
+    }
+
+    initThemeToggle();
+
+    // ---- Query parsing ----
+    function getStopsFromQuery() {
+      var p = new URLSearchParams(location.search);
+      var s = p.get('stops');
+      if (!s) return DEFAULT_STOPS;
+
+      return s.split(',').map(function (x) {
+        var parts = x.split(':');
+        var id = parts.shift();
+        var walk = 0;
+        if (parts.length >= 2) {
+          var last = parts[parts.length - 1];
+          var maybeWalk = Number(last);
+          if (Number.isFinite(maybeWalk)) {
+            walk = Math.max(0, Math.floor(maybeWalk));
+            parts.pop();
+          }
+        }
+        var name = parts.join(':');
+        return { id: Number(id), name: name || ('VGN ' + id), walk: walk };
+      }).filter(function (x) { return Number.isFinite(x.id); });
+    }
+
+    function getRefreshIntervalSeconds() {
+      var p = new URLSearchParams(location.search);
+      var r = Number(p.get('refresh'));
+      return Number.isFinite(r) && r >= 5 ? r : DEFAULT_REFRESH;
+    }
+
+
+    var stops = getStopsFromQuery();
+    var endpoints = stops.map(function (s) {
+      return { name: s.name, url: API_BASE + s.id };
+    });
+    var walkMinutesByStation = {};
+    for (var wi = 0; wi < stops.length; wi++) {
+      var st = stops[wi];
+      walkMinutesByStation[st.name] = Number(st.walk || 0);
+    }
+
+    // ---- Helpers ----
+    function parseDateSafe(v) {
+      var d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function badgeClassForProdukt(p) {
+      return ({ Bus:'bus', Tram:'tram', UBahn:'ubahn', SBahn:'sbahn' }[p]) || '';
+    }
+
+    function directionArrowHtml(dir) {
+      if (dir === 'Richtung1') return '<span class="dir-arrow" aria-label="Richtung 1" title="Richtung 1">↩ </span>';
+      if (dir === 'Richtung2') return '<span class="dir-arrow" aria-label="Richtung 2" title="Richtung 2">↪ </span>';
+      return '';
+    }
+
+    function formatRemainingText(min) {
+      if (min <= 0) return 'jetzt';
+      if (min === 1) return '1 min';
+      return min + ' min';
+    }
+
+    function formatDelayMinutes(deltaMs) {
+      var m = Math.floor(deltaMs / 60000);
+      if (m === 0) return null;
+      return (m > 0 ? '+' : '') + m;
+    }
+
+    function esc(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    // ---- Fetch (partial failure safe) ----
+    async function fetchAllInPriorityOrder() {
+      var errors = [];
+      fetchAllInPriorityOrder.lastErrors = errors;
+
+      var results = await Promise.all(
+        endpoints.map(async function (e) {
+          try {
+            var r = await fetch(e.url, { cache: 'no-store' });
+            if (!r.ok) throw new Error(e.name + ": HTTP " + r.status);
+            var d = await r.json();
+            return { endpoint: e, abfahrten: (d && d.Abfahrten) ? d.Abfahrten : [] };
+          } catch (err) {
+            errors.push(String((err && err.message) ? err.message : err));
+            return { endpoint: e, abfahrten: [] };
+          }
+        })
+      );
+
+      var seen = new Set();
+      var merged = [];
+
+      for (var i = 0; i < results.length; i++) {
+        var endpoint = results[i].endpoint;
+        var abfahrten = results[i].abfahrten;
+
+        for (var j = 0; j < abfahrten.length; j++) {
+          var a = abfahrten[j];
+          if (!a || !a.Fahrtnummer || seen.has(a.Fahrtnummer)) continue;
+
+          var soll = parseDateSafe(a.AbfahrtszeitSoll);
+          var istP = parseDateSafe(a.AbfahrtszeitIst);
+          var ist = istP || soll;
+          if (!soll || !ist) continue;
+
+          seen.add(a.Fahrtnummer);
+
+          merged.push({
+            station: endpoint.name,
+            linie: a.Linienname,
+            richtung: a.Richtungstext,
+            richtungCode: a.Richtung,
+            soll: soll,
+            ist: ist,
+            hasIst: !!istP,
+            produkt: a.Produkt
+          });
+        }
+      }
+
+      return merged;
+    }
+
+    // ---- Filter state ----
+    var selectedStation = null;
+    var lastAll = [];
+    var tableClickBound = false;
+
+    function updateFilterNote() {
+      var note = document.getElementById('filterNote');
+      if (!note) return;
+      if (selectedStation) {
+        note.textContent = 'Filter aktiv: ' + selectedStation + ' (erneut tippen zum Zuruecksetzen)';
+      } else {
+        note.textContent = 'Tipp: Tippe auf eine Zeile, um nach Station zu filtern.';
+      }
+    }
+
+    function renderTable(all) {
+      var c = document.getElementById("abfahrten");
+      var now = new Date();
+      var rows = all.slice();
+
+      if (selectedStation) {
+        rows = rows.filter(function (x) { return x.station === selectedStation; });
+      }
+
+      rows = rows.filter(function (x) { return (x.ist - now) >= -60000; });
+      rows.sort(function (a, b) { return a.ist - b.ist; });
+
+      var errs = fetchAllInPriorityOrder.lastErrors || [];
+      var errHtml = errs.length ? ('<p class="error">Hinweis: ' + esc(errs.join(" · ")) + '</p>') : '';
+
+      if (rows.length === 0) {
+        c.innerHTML = errHtml + '<p class="info">Keine Abfahrten in den nächsten Minuten gefunden.</p>';
+        return;
+      }
+
+      var html = errHtml + '<table><thead><tr>' +
+        '<th>Station</th><th>Linie</th><th>Richtung</th>' +
+        '<th>Abfahrtszeit</th><th>Verbleibend</th><th>Losgehen in</th>' +
+        '</tr></thead><tbody>';
+
+      for (var k = 0; k < rows.length; k++) {
+        var a2 = rows[k];
+
+        var delay = a2.hasIst ? formatDelayMinutes(a2.ist - a2.soll) : null;
+        var showIst = (delay !== null);
+
+        var timeSoll = a2.soll.toLocaleTimeString(locale, { hour:'2-digit', minute:'2-digit' });
+        var remSoll = Math.max(0, Math.floor((a2.soll - now) / 60000));
+        var remIst  = Math.max(0, Math.floor((a2.ist  - now) / 60000));
+        var baseRem = showIst ? remIst : remSoll;
+        var walkMin = Number(walkMinutesByStation[a2.station] || 0);
+        var walkRemainingRaw = baseRem - walkMin;
+        if (walkRemainingRaw < 0) continue;
+        var walkRemaining = Math.max(0, walkRemainingRaw);
+
+        var activeClass = (selectedStation && a2.station === selectedStation) ? ' row-active' : '';
+        html += '<tr class="trip-row' + activeClass + '" data-station="' + esc(a2.station) + '">' +
+          '<td>' + esc(a2.station) + '</td>' +
+          '<td><span class="linien-badge ' + esc(badgeClassForProdukt(a2.produkt)) + '">' + esc(a2.linie) + '</span></td>' +
+          '<td>' + directionArrowHtml(a2.richtungCode) + esc(a2.richtung) + '</td>' +
+          '<td>' + (showIst ? (esc(timeSoll) + ' <span class="delay">' + esc(delay) + '</span>') : esc(timeSoll)) + '</td>' +
+          '<td>' + (showIst
+            ? (esc(formatRemainingText(remSoll)) + ' <span class="delay">(' + esc(formatRemainingText(remIst)) + ')</span>')
+            : esc(formatRemainingText(remSoll))
+          ) + '</td>' +
+          '<td>' + esc(formatRemainingText(walkRemaining)) + '</td>' +
+        '</tr>';
+      }
+
+      html += '</tbody></table>';
+      c.innerHTML = html;
+
+      if (!tableClickBound) {
+        c.addEventListener('click', function (ev) {
+          var row = ev.target.closest ? ev.target.closest('tr[data-station]') : null;
+          if (!row) return;
+          var station = row.getAttribute('data-station') || '';
+          if (!station) return;
+          selectedStation = (selectedStation === station) ? null : station;
+          updateFilterNote();
+          renderTable(lastAll);
+        });
+        tableClickBound = true;
+      }
+    }
+
+    // ---- Render loop (with overlap protection) ----
+    var isLoading = false;
+    var refreshTimerId = null;
+    var refreshMs = getRefreshIntervalSeconds() * 1000;
+
+    async function loadAllAbfahrten() {
+      if (isLoading) return;
+      isLoading = true;
+
+      var c = document.getElementById("abfahrten");
+      c.innerHTML = '<p class="info">Lade…</p>';
+
+      try {
+        var all = await fetchAllInPriorityOrder();
+        lastAll = all;
+
+        renderTable(all);
+        updateFilterNote();
+      } catch (e) {
+        c.innerHTML = '<p class="error">Fehler beim Laden: ' + esc((e && e.message) ? e.message : e) + '</p>';
+      } finally {
+        isLoading = false;
+        if (refreshTimerId) clearTimeout(refreshTimerId);
+        refreshTimerId = setTimeout(loadAllAbfahrten, refreshMs);
+      }
+    }
+
+    loadAllAbfahrten();
+  </script>
+</body>
+</html>
+
+
