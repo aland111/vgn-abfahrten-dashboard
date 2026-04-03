@@ -30,6 +30,14 @@ abfahrten.html?stops=503:Maffeiplatz:15,545:Wodanstraße:6
 
 - `refresh` is the refresh interval in seconds (minimum 5)
 
+## Find VGN Station IDs
+You can look up station IDs via the VGN station search endpoint.
+
+Example (search for Frankenstraße):
+```
+GET https://start.vag.de/dm/api/haltestellen.json/vgn?name=franken
+```
+
 ## UI Behavior
 - Tap any row to filter the table to that station.
 - Tap the same station again to clear the filter.
